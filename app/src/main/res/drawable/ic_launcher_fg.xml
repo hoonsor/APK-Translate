@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 自適應圖示前景：108dp 畫布，24 單位圖示放大 2 倍後置中 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="2"
+        android:scaleY="2"
+        android:translateX="30"
+        android:translateY="30">
+        <path
+            android:fillColor="#FF7FD1C8"
+            android:pathData="M4,3h16a2,2 0,0 1,2 2v10a2,2 0,0 1,-2 2h-9l-5,4v-4H4a2,2 0,0 1,-2 -2V5a2,2 0,0 1,2 -2zM7,7v2h4.2c-0.6,1.4 -1.8,2.6 -3.4,3.3l0.8,1.8c1.6,-0.8 2.9,-1.9 3.8,-3.3c0.9,1.4 2.2,2.5 3.8,3.3l0.8,-1.8c-1.6,-0.7 -2.8,-1.9 -3.4,-3.3H17V7h-4V5.5h-2V7H7z" />
+    </group>
+</vector>

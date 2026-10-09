@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">螢幕翻譯</string>
+    <string name="tile_label">螢幕翻譯</string>
+    <string name="accessibility_label">螢幕翻譯（截圖與浮動按鈕）</string>
+    <string name="accessibility_description">用於在你點擊浮動小圓點時擷取目前畫面，辨識文字並翻譯成中文。只在你主動點擊時截圖，不會讀取其他 App 的內容或記錄操作。</string>
+</resources>
