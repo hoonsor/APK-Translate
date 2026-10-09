@@ -1,9 +1,9 @@
 # PROJECT_STATUS — 螢幕翻譯 ScreenTranslate
 
 - **目前版本**：v0.1.0
-- **狀態**：第一版完成，待實機測試
+- **狀態**：已編譯發佈，待實機測試
 - **目標機型**：OPPO Reno 14F（ColorOS）
-- **最後更新**：2026/10/09 12:50
+- **最後更新**：2026/10/09 13:15
 
 ## 任務
 
@@ -19,7 +19,7 @@
 - [x] 漫畫模式：截圖＋OCR 混合送視覺模型
 - [x] 滑動翻頁轉發，翻頁後自動翻譯
 - [x] 設定頁：權限引導、ColorOS 提示、引擎設定、測試翻譯、模型列表
-- [ ] GitHub Actions 首次編譯通過
+- [x] GitHub Actions 首次編譯通過（APK 約 86 MB）
 - [ ] Reno 14F 實機測試：截圖、蓋字座標、ColorOS 背景存活
 - [ ] 確認 MiniMax 月訂方案 key 可呼叫 chat completions 與圖片輸入
 
