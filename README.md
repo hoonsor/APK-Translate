@@ -48,8 +48,8 @@
 
 ### 自行編譯
 ```bash
-git clone https://github.com/hoonsor/APK-Photo.git
-cd APK-Photo
+git clone https://github.com/hoonsor/APK-Translate.git
+cd APK-Translate
 gradle :app:assembleRelease   # 需要 Android SDK 與 JDK 17
 ```
 推送到 `main` 會由 GitHub Actions 自動編譯並更新 `latest` 預先發行版；推送 `vX.Y.Z` tag 會建立正式 Release。
