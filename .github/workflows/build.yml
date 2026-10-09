@@ -14,21 +14,31 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
+      # GitHub runner 已內建 Android SDK（ANDROID_HOME），不需要另外安裝
 
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.11.1"
 
       - name: Build release APK
-        run: gradle :app:assembleRelease --no-daemon --stacktrace
+        run: |
+          set -o pipefail
+          gradle :app:assembleRelease --no-daemon 2>&1 | tee build.log
+
+      # 編譯失敗時把錯誤寫成 annotation，方便不下載 log 也能看到原因
+      - name: Report build errors
+        if: failure()
+        run: |
+          grep -E "^e: |error:|What went wrong|Could not|> " build.log | head -40 | while IFS= read -r line; do
+            echo "::error::${line//%/%25}"
+          done || true
 
       - name: Rename APK with version
         id: apk
