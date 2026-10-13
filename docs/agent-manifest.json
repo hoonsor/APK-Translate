@@ -1,0 +1,338 @@
+{
+  "api": 1,
+  "app": "螢幕翻譯",
+  "package": "com.hoonsor.screentranslate",
+  "version": "0.1.0",
+  "description": "點一下浮動小圓點，把手機畫面上的外文（英文漫畫、網頁）翻成繁體中文並蓋在原文位置。",
+  "status": "planned",
+  "actions": [
+    {
+      "name": "screen_translate",
+      "title": "翻譯目前畫面",
+      "description": "截取目前畫面、辨識文字並翻譯成繁體中文，譯文蓋在原文位置（等同點一下浮動小圓點）。只在使用者明確要求時呼叫。",
+      "risk": "reversible",
+      "params": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "fast",
+              "comic"
+            ],
+            "description": "fast=快速模式（只送文字）；comic=漫畫模式（送截圖給視覺模型）。省略時用目前設定"
+          },
+          "delayMs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3000,
+            "default": 600,
+            "description": "截圖前等待毫秒數，讓呼叫端（AI 大腦）的介面先收起"
+          }
+        },
+        "additionalProperties": false
+      },
+      "examples": [
+        "翻譯這個畫面",
+        "幫我翻一下",
+        "用漫畫模式翻譯這頁"
+      ],
+      "status": "planned"
+    },
+    {
+      "name": "overlay_dismiss",
+      "title": "關閉翻譯結果",
+      "description": "關閉目前顯示的翻譯疊加層。沒有疊加層時也回傳成功。",
+      "risk": "reversible",
+      "params": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "examples": [
+        "關掉翻譯",
+        "把翻譯收起來"
+      ],
+      "status": "planned"
+    },
+    {
+      "name": "bubble_set",
+      "title": "顯示或隱藏浮動小圓點",
+      "description": "顯示或隱藏浮動小圓點（等同快速設定面板開關）。",
+      "risk": "reversible",
+      "params": {
+        "type": "object",
+        "properties": {
+          "visible": {
+            "type": "boolean",
+            "description": "true=顯示；false=隱藏"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "visible"
+        ]
+      },
+      "examples": [
+        "打開翻譯按鈕",
+        "把翻譯小圓點藏起來"
+      ],
+      "status": "planned"
+    },
+    {
+      "name": "mode_set",
+      "title": "切換翻譯模式",
+      "description": "設定預設翻譯模式（等同長按小圓點）。",
+      "risk": "reversible",
+      "params": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "fast",
+              "comic"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "mode"
+        ]
+      },
+      "examples": [
+        "切換成漫畫模式",
+        "改回快速模式"
+      ],
+      "status": "planned"
+    },
+    {
+      "name": "ocr_language_set",
+      "title": "設定原文語言",
+      "description": "設定 OCR 辨識的原文語言。",
+      "risk": "reversible",
+      "params": {
+        "type": "object",
+        "properties": {
+          "language": {
+            "type": "string",
+            "enum": [
+              "latin",
+              "japanese",
+              "korean"
+            ],
+            "description": "latin=英文與歐洲語言"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "language"
+        ]
+      },
+      "examples": [
+        "原文改成日文",
+        "我要看韓文漫畫",
+        "改回英文"
+      ],
+      "status": "planned"
+    },
+    {
+      "name": "settings_get",
+      "title": "查詢目前設定",
+      "description": "回傳目前模式、原文語言、小圓點是否顯示、翻頁自動翻譯等設定。不含任何 API key。",
+      "risk": "read",
+      "params": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "examples": [
+        "現在是什麼翻譯模式？",
+        "翻譯按鈕有開嗎？"
+      ],
+      "status": "planned"
+    },
+    {
+      "name": "provider_list",
+      "title": "列出翻譯引擎",
+      "description": "列出所有翻譯引擎、是否已設定、使用的模型，以及主要／備援／漫畫模式各用哪一個。不含任何 API key。",
+      "risk": "read",
+      "params": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "examples": [
+        "翻譯引擎有哪些？",
+        "現在用哪個引擎翻譯？"
+      ],
+      "status": "planned"
+    },
+    {
+      "name": "provider_set",
+      "title": "指定引擎用途",
+      "description": "指定主要、備援或漫畫模式要用的引擎。不能設定 API key。",
+      "risk": "reversible",
+      "params": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "fallback",
+              "vision"
+            ],
+            "description": "primary=快速模式主要；fallback=備援；vision=漫畫模式"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "groq",
+              "minimax",
+              "gemini",
+              "custom",
+              "none"
+            ],
+            "description": "none 只適用於 fallback（不使用備援）"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "role",
+          "provider"
+        ]
+      },
+      "examples": [
+        "主要引擎改用 MiniMax",
+        "備援改成 Gemini",
+        "漫畫模式用 Gemini"
+      ],
+      "status": "planned"
+    },
+    {
+      "name": "provider_test",
+      "title": "測試翻譯引擎",
+      "description": "用兩句範例英文測試指定引擎，回傳耗時與譯文或錯誤原因。會消耗一次 API 額度。",
+      "risk": "read",
+      "params": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "groq",
+              "minimax",
+              "gemini",
+              "custom"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "provider"
+        ]
+      },
+      "examples": [
+        "測試 Groq 能不能用",
+        "MiniMax 還正常嗎？"
+      ],
+      "status": "planned"
+    },
+    {
+      "name": "text_translate",
+      "title": "翻譯一段文字",
+      "description": "把一段文字翻成繁體中文並回傳，不截圖、不顯示疊加層。使用快速模式的主要／備援引擎。",
+      "risk": "read",
+      "params": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "text"
+        ]
+      },
+      "examples": [
+        "把這句翻成中文：I'll be right back",
+        "翻譯 hold your horses"
+      ],
+      "status": "planned"
+    },
+    {
+      "name": "history_list",
+      "title": "列出最近的翻譯",
+      "description": "列出最近幾次的翻譯結果（原文與譯文）。依賴「譯文歷史」功能（F22）。",
+      "risk": "read",
+      "params": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "default": 5
+          }
+        },
+        "additionalProperties": false
+      },
+      "examples": [
+        "剛剛翻了什麼？",
+        "上一頁的翻譯再唸一次"
+      ],
+      "status": "planned"
+    },
+    {
+      "name": "backup_export",
+      "title": "匯出設定備份",
+      "description": "把設定匯出成 ScreenTranslate-backup-YYYYMMDD-HHmm.zip。是否包含 API key 待倬確認。依賴備份功能（F19）。",
+      "risk": "read",
+      "params": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "examples": [
+        "匯出翻譯 App 的設定",
+        "備份螢幕翻譯"
+      ],
+      "status": "planned"
+    },
+    {
+      "name": "backup_import",
+      "title": "從備份匯入設定",
+      "description": "從備份檔匯入設定（合併或取代）。匯入前自動備份，可復原。一律先回 NEEDS_CONFIRMATION。依賴備份功能（F19）。",
+      "risk": "destructive",
+      "params": {
+        "type": "object",
+        "properties": {
+          "uri": {
+            "type": "string",
+            "description": "備份檔的 content:// URI"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "merge",
+              "replace"
+            ],
+            "default": "merge"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "uri"
+        ]
+      },
+      "examples": [
+        "從備份還原翻譯設定"
+      ],
+      "status": "planned"
+    }
+  ]
+}
