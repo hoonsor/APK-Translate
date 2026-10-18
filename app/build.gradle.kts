@@ -4,6 +4,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// 共用簽章 hoonsor-release.jks：由 CI 從 Secrets 解出；本機或沒有 Secrets 時退回 debug 簽章
+val signingPath: String? = System.getenv("SIGNING_KEYSTORE_PATH")?.takeIf { it.isNotBlank() && file(it).exists() }
+
 android {
     namespace = "com.hoonsor.screentranslate"
     compileSdk = 35
@@ -12,27 +15,27 @@ android {
         applicationId = "com.hoonsor.screentranslate"
         minSdk = 30          // Android 11：AccessibilityService.takeScreenshot() 的最低版本
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        // 發新版：改這兩行後 push vX.Y.Z tag（tag 必須與 versionName 相同，CI 會檢查）
+        versionCode = 2
+        versionName = "0.2.0"
     }
 
-    // 固定簽章：每次 CI 編出的 APK 都能直接覆蓋安裝，不必先解除安裝
+    // 金鑰與密碼都不放進 repo（repo 是公開的），一律從環境變數讀
     signingConfigs {
-        create("fixed") {
-            storeFile = rootProject.file("keystore/screentranslate.jks")
-            storePassword = "screentranslate"
-            keyAlias = "screentranslate"
-            keyPassword = "screentranslate"
+        if (signingPath != null) {
+            create("hoonsor") {
+                storeFile = file(signingPath)
+                storePassword = System.getenv("SIGNING_STORE_PASSWORD")
+                keyAlias = System.getenv("SIGNING_KEY_ALIAS")
+                keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
+            }
         }
     }
 
     buildTypes {
-        debug {
-            signingConfig = signingConfigs.getByName("fixed")
-        }
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("fixed")
+            signingConfig = if (signingPath != null) signingConfigs.getByName("hoonsor") else signingConfigs.getByName("debug")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
@@ -63,6 +66,7 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7") // App 內更新的 LifecycleEventEffect
 
     // 協程
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
@@ -75,4 +79,8 @@ dependencies {
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.google.mlkit:text-recognition-japanese:16.0.1")
     implementation("com.google.mlkit:text-recognition-korean:16.0.1")
+
+    // 單元測試（App 內更新的版本比較、Release 解析；org.json 在 JVM 上要真正的實作）
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }

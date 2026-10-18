@@ -1,10 +1,17 @@
 # PROJECT_STATUS — 螢幕翻譯 ScreenTranslate
 
-- **目前版本**：v0.1.0
+- **目前版本**：v0.2.0
 - **狀態**：已編譯發佈，**尚未安裝、尚未實機測試**（2026/10/13 倬確認）
 - **目標機型**：OPPO Reno 14F（ColorOS）
-- **最後更新**：2026/10/13 21:40（補齊交接文件）
-- **下載**：`https://github.com/hoonsor/APK-Translate/releases/download/latest/ScreenTranslate-latest.apk`
+- **最後更新**：2026/10/18（免接線更新、共用簽章）
+- **下載**：正式版 [Releases](https://github.com/hoonsor/APK-Translate/releases)（`ScreenTranslate-vX.Y.Z.apk`）；測試版 `https://github.com/hoonsor/APK-Translate/releases/download/latest/ScreenTranslate-latest.apk`
+
+## 發布與手機端更新
+- 發新版：改 `app/build.gradle.kts` 的 `versionCode`／`versionName` → 在「版本歷程」表格加 `| vX.Y.Z | … |` 列（會成為 Release 更新說明）→ 推送 main 與同名 `vX.Y.Z` tag。CI 會檢查 tag 與 versionName 一致、跑單元測試、編譯並發布 `ScreenTranslate-vX.Y.Z.apk`。
+- 推送 main 會自動更新 `latest` 預先發行版（測試用，App 內更新與 Obtainium 不會追它）。
+- 手機端：App 內更新（每天第一次開啟自動檢查、設定頁「App 更新」手動檢查）或 Obtainium（來源 `https://github.com/hoonsor/APK-Translate`，不要勾 prereleases）。詳細步驟見 README「手機端更新」。
+- 簽章：共用金鑰 `hoonsor-release.jks`，Secrets 已寫入。憑證 SHA-256 `514ec00eea070dd3e67b4f6a0c722c9c779497bb0797e7a3446fcca4e4548825`。
+- 裝過 v0.1.0 的手機：記下 API key → 解除安裝 → 安裝 v0.2.0 → 重設（只需一次）。
 - **接手必讀**：`AGENTS.md`（架構、決策、踩坑、規則）
 
 ## 任務
@@ -24,6 +31,12 @@
 - [x] GitHub Actions 首次編譯通過（APK 約 86 MB）
 - [ ] Reno 14F 實機測試：截圖、蓋字座標、ColorOS 背景存活
 - [ ] 確認 MiniMax 月訂方案 key 可呼叫 chat completions 與圖片輸入
+
+### v0.2.0（建置標準化，部分）
+- [x] 共用簽章 hoonsor-release.jks（GitHub Secrets）、移除 repo 內簽章（2026/10/18）
+- [x] GitHub Actions：tag 發正式 Release、main 發 latest、單元測試、tag 與 versionName 檢查（2026/10/18）
+- [x] App 內更新（檢查、下載、PackageInstaller 安裝）、Gradle Wrapper（2026/10/18）
+- [ ] LAB 版（`.lab`）、`libs.versions.toml`、`versionCode` 由版號推導
 
 ### 待規劃
 - [ ] 依實測調整對話框合併參數與字級
@@ -53,12 +66,12 @@ v0.1.0 全部項目都還沒實機確認：
 
 ## 已知問題
 
-1. **簽章檔與密碼在 repo 裡**（`keystore/screentranslate.jks`、`app/build.gradle.kts`）。違反倬的共用簽章標準；repo 若公開等於簽章公開。
+1. ~~簽章檔與密碼在 repo 裡~~：v0.2.0 已改用共用簽章、檔案移出 repo。舊的 `screentranslate.jks` 仍在 git 歷史中（repo 公開），已不再使用。
 2. **API key 未加密**：存在一般 SharedPreferences（App 私有、`allowBackup=false`），未用 Keystore AES-GCM。
 3. 尚未實作標準必備項目：Hoonsor Agent API v1、備份四件套、健康檢查頁、LAB 版、JVM 單元測試。
 4. AI 預設值與倬的標準不同：標準是主力 MiniMax M3（`reasoning_split: true`）、備援 Groq、temperature 0.2；目前是主力 Groq（0.3）、MiniMax 備援（1.0）。原因見 AGENTS.md D6、D7；是否對齊原因待倬確認。
 5. APK 約 86 MB（內建英、日、韓 OCR 模型）。
-6. repo 沒有 Gradle Wrapper；依賴版本未集中到 `libs.versions.toml`；`versionCode` 未由版號推導。
+6. 依賴版本未集中到 `libs.versions.toml`；`versionCode` 未由版號推導（Gradle Wrapper 已於 v0.2.0 加入）。
 7. GitHub Actions 警告：部分 action 使用已棄用的 Node.js 20；`ubuntu-latest` 自 2026/10/19 起改為 Ubuntu 26，可能影響編譯，之後第一次編譯要留意。
 8. 日文直排的碎片合併以橫排邏輯為主，直排漫畫效果未知。
 9. 漫畫模式沒有要求 `response_format`，依賴容錯 JSON 解析；視覺模型若回傳非 JSON 會退回快速模式。
@@ -71,7 +84,7 @@ v0.1.0 全部項目都還沒實機確認：
 | 版本 | 主題 | 內容 | 為什麼排這個順序 |
 |---|---|---|---|
 | v0.1.x | 實機修正 | 倬裝機測試，依「待實機驗證」回報逐項修正 | 先確認核心流程可用 |
-| v0.2.0 | 建置標準化 | 改用共用簽章 hoonsor-release.jks（GitHub Secrets，倬需把 repo 加進 `setup-hoonsor-signing.ps1` 清單）、移除 repo 內簽章、LAB 版（`.lab`）、`libs.versions.toml`、`versionCode` 由版號推導、Gradle Wrapper | 換簽章必須解除安裝一次，越早換，要重設的資料越少 |
+| v0.2.0 | 建置標準化 | ✅ 共用簽章、移除 repo 內簽章、Gradle Wrapper、App 內更新（2026/10/18）；剩 LAB 版（`.lab`）、`libs.versions.toml`、`versionCode` 由版號推導 | 換簽章必須解除安裝一次，越早換，要重設的資料越少 |
 | v0.3.0 | 安全與穩定 | API key 改 Keystore AES-GCM；健康檢查頁（無障礙、受限設定、電池最佳化、ColorOS 自啟動／關聯啟動、立即測試）；AI 預設值是否對齊標準（先問倬） | 實機發現 ColorOS 問題時，有健康檢查頁才好引導 |
 | v0.4.0 | 備份 | 設定匯出／匯入 zip（分享、SAF 儲存、匯入合併／取代、匯入前自動備份、可復原）；API key 是否納入備份（先問倬） | Agent API 的 `backup_*` 動作依賴它 |
 | v0.5.0 | Agent API v1 | `describe`／`execute`／`health`、API 測試台；動作依 `docs/AGENT_API.md` | 讓未來的「AI 大腦 APP」能用語音呼叫 |
@@ -82,6 +95,8 @@ v0.1.0 全部項目都還沒實機確認：
 
 | 版本 | 日期 | commit | 變更 | 為什麼 |
 |---|---|---|---|---|
+| v0.2.0 | 2026/10/18 | （本次） | 改用共用簽章 hoonsor-release.jks，簽章檔與密碼移出 repo；GitHub Actions 推 tag 發布正式 Release | 倬的共用簽章標準；repo 公開不能放簽章；手機要能不接線更新 |
+| v0.2.0 | 2026/10/18 | （本次） | 設定頁新增「App 更新」：每天自動檢查 GitHub 新版，確認後下載並交給系統安裝 | 手機不接線就能更新，設定與 API key 保留 |
 | v0.1.0 | 2026/10/09 12:45 | `b3652a4` | 第一版：小圓點、快速設定開關、無障礙截圖、ML Kit OCR、Groq／MiniMax／Gemini 翻譯與備援、原位蓋字、漫畫模式、滑動翻頁自動翻譯 | 倬要用點一下的方式翻譯手機畫面（看英文漫畫），取代需要長按指示條的 Gemini |
 | v0.1.0 | 2026/10/09 12:52 | `bf02f57` | README 改用新 repo 名稱 | 倬把 repo 從 APK-Photo 改名為 APK-Translate（APK-Photo 保留給相簿 App） |
 | v0.1.0 | 2026/10/09 13:02 | `b636c61` | CI 增加 `ci-test` 分支觸發 | 先在測試分支確認能編譯，再推 main |
@@ -106,3 +121,11 @@ v0.1.0 全部項目都還沒實機確認：
 - **未完成**：所有功能的「倬確認」欄位待倬確認；APP-REGISTRY.md 那一列由倬自行更新（Claude 無法存取該 Project）。
 - **下一步**：倬安裝實機測試 → v0.1.x 修正 → v0.2.0 建置標準化。
 - **環境注意**：同上。
+
+### 2026/10/18 — 電腦 A（家裡）
+- **完成**：v0.2.0 免接線更新：共用簽章（環境變數）、`keystore/` 移到本機 `_trash/` 並加入 .gitignore、Gradle Wrapper 8.11.1、App 內更新（移植自鬧鐘 APP）、CI 改為 tag 發正式 Release＋單元測試；本機分支由 `ci-test` 切到 `main`（倬同意）。
+- **決定＋原因**：CI 不再觸發 `ci-test` 分支（本機可以編譯，不需要先在測試分支試）；更新說明取自版本歷程表該版本的所有列。
+- **放棄＋原因**：重寫 git 歷史刪掉舊簽章（舊簽章不再使用，重寫歷史風險高）。
+- **未完成**：推 v0.2.0 tag、實機安裝。
+- **下一步**：倬安裝 v0.2.0 實機測試（裝過 v0.1.0 要先解除安裝）。
+- **環境注意**：本機建置用 `C:/Users/hoonsor/.jdks/jbr-21.0.11`；`local.properties` 的 `sdk.dir` 要用正斜線。

@@ -8,3 +8,9 @@ local.properties
 captures/
 .kotlin/
 dist/
+# 簽章金鑰：絕不提交（repo 為公開）；舊的 keystore/ 已移到 _trash/
+keystore/
+*.jks
+*.keystore
+*.p12
+_trash/

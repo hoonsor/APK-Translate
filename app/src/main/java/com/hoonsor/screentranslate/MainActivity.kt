@@ -73,6 +73,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.hoonsor.screentranslate.update.AutoUpdateCheck
+import com.hoonsor.screentranslate.update.UpdateCard
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -179,6 +181,7 @@ private fun SettingsScreen(prefs: Prefs, tick: Int) {
             BehaviorCard(prefs, serviceOn)
             EngineCard(prefs)
             ColorOsCard(activity)
+            UpdateCard()
             Text(
                 "v${BuildConfig.VERSION_NAME}・API key 只存在本機 App 私有儲存區，不會備份或上傳",
                 color = TextLo, fontSize = 12.sp, modifier = Modifier.padding(4.dp),
@@ -186,6 +189,8 @@ private fun SettingsScreen(prefs: Prefs, tick: Int) {
             Spacer(Modifier.height(24.dp))
         }
     }
+    // 每天第一次開啟時在背景檢查 GitHub 新版，有新版才跳對話框
+    AutoUpdateCheck()
 }
 
 @Composable

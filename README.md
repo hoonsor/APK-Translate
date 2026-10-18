@@ -38,7 +38,7 @@
 - 至少一組翻譯引擎的 API key：Groq（免費）、MiniMax、或 Google AI Studio（Gemini 免費）
 
 ### 安裝
-1. 用手機開啟本 repo 的 **Releases → latest**，下載 `ScreenTranslate-latest.apk` 安裝。
+1. 用手機開啟本 repo 的 [Releases](https://github.com/hoonsor/APK-Translate/releases)，下載標記為 Latest 的正式版 `ScreenTranslate-vX.Y.Z.apk` 安裝（或用 Obtainium，見「手機端更新」）。
 2. 開啟 App，依畫面指示：
    1. 「應用程式資訊」→ 右上角 ⋮ →「允許受限設定」
    2. 「開啟無障礙設定」→ 已下載的應用程式 →「螢幕翻譯」→ 開啟
@@ -50,16 +50,16 @@
 ```bash
 git clone https://github.com/hoonsor/APK-Translate.git
 cd APK-Translate
-gradle :app:assembleRelease   # 需要 Android SDK 與 JDK 17
+./gradlew :app:testDebugUnitTest :app:assembleRelease   # 需要 Android SDK 與 JDK 17 或 21（不要用 JDK 25）
 ```
-推送到 `main` 會由 GitHub Actions 自動編譯並更新 `latest` 預先發行版；推送 `vX.Y.Z` tag 會建立正式 Release。
+推送到 `main` 會由 GitHub Actions 自動編譯並更新 `latest` 預先發行版；推送 `vX.Y.Z` tag 會建立正式 Release，見「如何發新版」。
 
 ## 📲 首次設定（詳細步驟）
 
 ### 1. 下載與安裝
-1. 手機瀏覽器打開：`https://github.com/hoonsor/APK-Translate/releases/download/latest/ScreenTranslate-latest.apk`
+1. 手機瀏覽器打開 [Releases](https://github.com/hoonsor/APK-Translate/releases)，下載最新正式版 `ScreenTranslate-vX.Y.Z.apk`（想搶先測試才用 `latest` 測試版）。
 2. 下載完成後點開安裝。若出現「禁止安裝未知應用程式」，依提示允許瀏覽器安裝。
-3. 之後有新版，用同一個網址下載覆蓋安裝即可，**目前不需要先解除安裝**（設定會保留）。
+3. 之後有新版，用 App 內更新或 Obtainium 即可，不用接線也不用解除安裝（設定會保留），見「手機端更新」。
 
 ### 2. 開啟無障礙服務（只需一次）
 Android 13 起，自行安裝的 App 的無障礙權限屬於「受限設定」，要先解鎖：
@@ -92,6 +92,44 @@ ColorOS 會主動關閉背景 App，可能讓小圓點消失。在 App 內點 **
 3. 打開多工畫面，把「螢幕翻譯」的卡片**往下拉鎖定**。
 
 選單名稱可能因 ColorOS 版本略有不同。
+
+## 📲 手機端更新（不用接線）
+
+v0.2.0 起，正式版由 GitHub Actions 編譯、用共用金鑰 `hoonsor-release.jks` 簽章，發布在 [Releases](https://github.com/hoonsor/APK-Translate/releases)。手機有兩種更新方式，擇一或並用：
+
+**App 內更新（建議）**
+- 每天第一次開啟設定頁時在背景檢查一次；有新版會跳出版本號與更新說明，可選「下載並更新」「稍後」或「略過此版」。
+- 設定頁最下方「App 更新」可隨時按「檢查更新」。
+- 第一次更新時會引導你到「安裝不明應用程式」允許本 App，按返回鍵回到 App 後自動開始下載。
+- 沒網路或 GitHub 無法連線時安靜略過，不影響翻譯。
+- 更新完成後設定與 API key 都保留，無障礙服務會自動重新連上（小圓點沒出現時，到快速設定面板再開一次）。
+
+**Obtainium 設定**
+1. 在手機安裝 [Obtainium](https://github.com/ImranR98/Obtainium/releases)。
+2. 「Add App」→ App Source URL 填 `https://github.com/hoonsor/APK-Translate`。
+3. 保持「Include prereleases」關閉（`latest` 是每次推送 main 自動編譯的測試版，不要追它）。
+4. 若同一個 Release 未來有多個 APK，在「Filter APKs by Regular Expression」填 `ScreenTranslate-v.*\.apk`。
+5. 新增後 Obtainium 會定期檢查，有新版時通知並一鍵安裝。
+
+**已裝過 v0.1.0 的手機（只需一次）**：v0.1.0 用的是專案自帶的舊簽章，v0.2.0 起換成共用金鑰，系統不允許直接覆蓋安裝。請先記下 API key → 解除安裝 → 從 Releases 安裝 v0.2.0 → 重新允許受限設定、開啟無障礙服務、填回 API key。之後的版本都能直接更新。
+
+## 🚢 如何發新版
+
+1. 修改 `app/build.gradle.kts` 的 `versionCode`（加 1）與 `versionName`（例如 `0.2.1`）。
+2. 在 `PROJECT_STATUS.md` 的「版本歷程」表格加一列 `| v0.2.1 | 日期 | commit | 變更 | 為什麼 |`（同一版可以有多列）；這些列會自動成為 Release 的更新說明（也就是 App 內更新對話框顯示的內容）。
+3. 提交並推送 main，接著推送同名 tag：
+
+   ```bash
+   git tag v0.2.1
+   git push origin main v0.2.1
+   ```
+
+4. GitHub Actions 會跑單元測試、編譯 `ScreenTranslate-v0.2.1.apk` 並建立正式 Release。tag 與 `versionName` 不一致時 CI 會直接失敗，避免 App 一直以為有新版。
+
+其他說明：
+- 每次推送 main 都會更新名為 `latest` 的預先發行版（`ScreenTranslate-latest.apk`），給想搶先測試時手動下載；App 內更新與 Obtainium 預設都不會把它當成新版。
+- 簽章 Secrets（`SIGNING_KEYSTORE_B64`、`SIGNING_STORE_PASSWORD`、`SIGNING_KEY_ALIAS`、`SIGNING_KEY_PASSWORD`）已由倬寫入 repo。沒有 Secrets 時 CI 會用 debug 簽章並顯示警告，這種 APK 無法覆蓋安裝，不要拿來發正式版。
+- 本機 `./gradlew :app:assembleRelease` 沒有設定 `SIGNING_KEYSTORE_PATH` 時會用 debug 簽章，只能自己測試。
 
 ## 🧭 功能使用說明
 
@@ -155,7 +193,7 @@ ColorOS 會主動關閉背景 App，可能讓小圓點消失。在 App 內點 **
 **目前版本（v0.1.0）沒有備份功能**，也關閉了 Android 系統自動備份（`allowBackup=false`），所以：
 - 覆蓋安裝新版：設定會保留。
 - **解除安裝或換手機：所有設定與 API key 都會消失**，需要重新填寫。建議把 API key 另外記在密碼管理器。
-- 預定在 v0.2.0 更換簽章時需要解除安裝一次，屆時會事先提醒。
+- v0.2.0 已換成共用簽章：裝過 v0.1.0 的手機需要解除安裝一次（步驟見「手機端更新」），之後不必再解除安裝。
 
 備份四件套（分享備份檔、儲存到檔案、從檔案匯入、匯入前自動備份可復原）排在 v0.4.0，進度見 `PROJECT_STATUS.md`。
 
@@ -204,10 +242,12 @@ app/src/main/java/com/hoonsor/screentranslate/
  ├── MainActivity.kt                    # 設定頁（Compose）
  └── Prefs.kt                           # 設定儲存與引擎預設值
 .github/workflows/build.yml             # 自動編譯與發佈 APK
-keystore/                               # 固定簽章（讓新版可直接覆蓋安裝）
+gradlew、gradle/wrapper/                # Gradle Wrapper 8.11.1
 ```
 
 ## 🔄 最新更新 (Recent Updates)
+
+- **v0.2.0**（2026/10/18）：免接線更新：改用共用簽章、GitHub Actions 發布正式 Release，設定頁新增「App 更新」（檢查、下載、安裝）；簽章檔移出 repo；加入 Gradle Wrapper 與單元測試。
 
 - **2026/10/13**：補齊交接文件（AGENTS.md、docs/）與本使用說明，程式未變動。
 - **v0.1.0**（2026/10/09）：第一版。浮動小圓點、快速設定開關、AccessibilityService 截圖、ML Kit OCR、Groq／MiniMax／Gemini 翻譯與自動備援、原位蓋字、漫畫模式、滑動翻頁後自動翻譯。

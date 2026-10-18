@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- App 內更新：用 PackageInstaller 安裝從 GitHub Releases 下載的新版 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:allowBackup="false"
@@ -53,5 +55,10 @@
                 android:name="android.service.quicksettings.TOGGLEABLE_TILE"
                 android:value="true" />
         </service>
+
+        <!-- 接收 App 內更新的安裝結果（PackageInstaller session） -->
+        <receiver
+            android:name=".update.UpdateInstallReceiver"
+            android:exported="false" />
     </application>
 </manifest>

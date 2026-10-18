@@ -25,8 +25,8 @@
 |---|---|
 | 語言 | Kotlin 2.0.21（含 Compose compiler plugin） |
 | Android Gradle Plugin | 8.7.3 |
-| Gradle | 8.11.1（**repo 沒有 Gradle Wrapper**，CI 由 `gradle/actions/setup-gradle` 指定版本） |
-| JDK | 17 |
+| Gradle | 8.11.1（v0.2.0 起有 Gradle Wrapper `./gradlew`） |
+| JDK | 17（CI）；本機可用 17 或 21（倬的電腦用 `C:/Users/hoonsor/.jdks/jbr-21.0.11`，不要用 Android Studio 內建的 JDK 25） |
 | SDK | compileSdk 35、targetSdk 35、minSdk 30（Android 11，`takeScreenshot()` 的最低版本） |
 | 設定頁 UI | Jetpack Compose（BOM 2024.12.01）＋ Material 3 |
 | 小圓點、翻譯疊加層 | 自繪 View（`TYPE_ACCESSIBILITY_OVERLAY`） |
@@ -40,18 +40,18 @@
 
 ## 3. 建置與安裝
 
-**只靠 GitHub Actions 編譯**（`.github/workflows/build.yml`）。
+正式版由 GitHub Actions 編譯發布（`.github/workflows/build.yml`），流程與鬧鐘 APP 相同。
 
 | 觸發 | 結果 |
 |---|---|
-| push 到 `main` | 編譯 release APK，上傳 artifact，並**刪除重建** `latest` 預先發行版（固定下載網址） |
-| push 到 `ci-test` | 只編譯＋artifact，用來先測試能否編譯，不影響 `latest` |
-| push tag `vX.Y.Z` | 建立正式 GitHub Release，附 APK |
+| push 到 `main` | 跑單元測試、編譯 release APK、上傳 artifact，並**刪除重建** `latest` 預先發行版（測試用固定網址） |
+| push tag `vX.Y.Z` | 檢查 tag 與 `versionName` 一致 → 建立正式 Release，附 `ScreenTranslate-vX.Y.Z.apk`；更新說明取自 PROJECT_STATUS「版本歷程」表該版本的列 |
 | 編譯失敗 | `Report build errors` 步驟把 `build.log` 的錯誤行寫成 annotation |
 
-- 手機下載網址（固定）：`https://github.com/hoonsor/APK-Translate/releases/download/latest/ScreenTranslate-latest.apk`
+- **簽章（v0.2.0 起）**：共用金鑰 `hoonsor-release.jks`。`app/build.gradle.kts` 從環境變數 `SIGNING_KEYSTORE_PATH`、`SIGNING_STORE_PASSWORD`、`SIGNING_KEY_ALIAS`、`SIGNING_KEY_PASSWORD` 讀取，CI 從 repo Secrets 解出；沒有時退回 debug 簽章。憑證 SHA-256 `514ec00eea070dd3e67b4f6a0c722c9c779497bb0797e7a3446fcca4e4548825`。**不要把金鑰或密碼放回 repo**（舊的 `keystore/screentranslate.jks` 已移到本機 `_trash/`，但仍留在 git 歷史中，視為已公開、不再使用）。
+- 手機端更新：App 內更新（`update/` 套件，移植自鬧鐘 APP）或 Obtainium，只追正式 Release。測試版網址：`https://github.com/hoonsor/APK-Translate/releases/download/latest/ScreenTranslate-latest.apk`
 - 讀取失敗原因：`gh api repos/hoonsor/APK-Translate/check-runs/<job_id>/annotations`（見第 7 節，Claude 雲端環境無法下載完整 log）。
-- 本機編譯（需 Android SDK、JDK 17、Gradle 8.11）：`gradle :app:assembleRelease`。
+- 本機編譯（需 Android SDK、JDK 17 或 21）：`./gradlew :app:testDebugUnitTest :app:assembleRelease`。
 - APK 約 86 MB，主因是內建英、日、韓三種 OCR 模型。
 
 建議的修改流程：先推 `ci-test` 確認編譯成功 → 再推 `main`。
@@ -72,7 +72,7 @@ app/src/main/java/com/hoonsor/screentranslate/
 app/src/main/res/xml/accessibility_service_config.xml  # canTakeScreenshot、canPerformGestures
 app/src/main/AndroidManifest.xml
 .github/workflows/build.yml
-keystore/screentranslate.jks            # 專案專用簽章（見決策 D13 與已知問題）
+app/src/main/java/.../update/           # App 內更新（檢查 GitHub Release、下載、PackageInstaller 安裝）
 docs/                                   # FEATURES、DESIGN、AGENT_API、agent-manifest.json
 ```
 
@@ -120,7 +120,7 @@ docs/                                   # FEATURES、DESIGN、AGENT_API、agent-
 | D10 | 只請求 `canTakeScreenshot` 與 `canPerformGestures`，`canRetrieveWindowContent="false"` | 不讀取其他 App 的畫面結構，降低隱私疑慮；只在使用者點擊時截圖 |
 | D11 | 忽略狀態列高度以上的文字、略過中文佔多數的區塊 | 避免把時間、電量、中文介面也拿去翻 |
 | D12 | 編譯用 **GitHub Actions**（倬選擇 A 方案，非 Android Studio） | 倬手機下載即可；Claude 的雲端環境連不到 Google Maven 無法編譯 |
-| D13 | `keystore/screentranslate.jks` **提交進 repo**、release 與 debug 都用它 | 讓每次 CI 編出的 APK 都能直接覆蓋安裝，不必先解除安裝。代價：repo 若公開，簽章等於公開。**此做法已與倬後來的標準「共用簽章 hoonsor-release.jks 走 GitHub Secrets」衝突**，列入路線 |
+| D13 | v0.2.0 起 release 用共用簽章 `hoonsor-release.jks`（GitHub Secrets），簽章檔移出 repo | 倬的標準；repo 是公開的，v0.1.0 提交的 `keystore/screentranslate.jks` 與寫死的密碼等於公開。原做法（專案簽章提交進 repo）已廢止 |
 | D14 | `main` 每次推送都重建 `latest` 預先發行版 | 手機只要記一個固定網址就能拿到最新版 |
 | D15 | 長按小圓點切換快速／漫畫模式，漫畫模式時小圓點右上角有琥珀色點 | 不用進設定頁就能換模式，且看得出目前模式 |
 | D16 | 日文 OCR 時閱讀順序改為由右而左 | 日文漫畫的閱讀方向 |
@@ -145,7 +145,7 @@ docs/                                   # FEATURES、DESIGN、AGENT_API、agent-
 2. **不要加回** `android-actions/setup-android@v3`：會失敗，runner 已有 `ANDROID_HOME`。
 3. Claude 工作階段**無法下載 Actions log**（blob 網址 Forbidden）→ 看 annotation：`gh api repos/hoonsor/APK-Translate/check-runs/<job_id>/annotations`。不要刪掉 `Report build errors` 步驟。
 4. Claude 工作階段**不能用 GitHub GraphQL**：`gh release view`、`gh pr view` 這類指令會 403，改用 REST：`gh api repos/hoonsor/APK-Translate/releases/tags/latest`。
-5. **換簽章 = 必須先解除安裝**：解除安裝會清掉 App 內的 API key、設定與無障礙授權。換之前要先有備份功能或請倬手動記下設定。
+5. **換簽章 = 必須先解除安裝**：解除安裝會清掉 App 內的 API key、設定與無障礙授權。v0.1.0 → v0.2.0 是最後一次（之後都用共用金鑰）；不要再換金鑰。
 6. `takeScreenshot()` 有頻率限制（約每秒一次）：遇到 `ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT` 等 1 秒重試一次，不要迴圈重試。
 7. 截圖前**一定要先隱藏小圓點**並等一個畫面週期（目前 110 ms），否則小圓點會被截進去並被 OCR。
 8. 截圖回傳的是 Hardware Bitmap，ML Kit 與 JPEG 壓縮需要 **copy 成 ARGB_8888**；用完要 `recycle()`、`HardwareBuffer.close()`。
