@@ -48,7 +48,7 @@
 | push tag `vX.Y.Z` | 檢查 tag 與 `versionName` 一致 → 建立正式 Release，附 `ScreenTranslate-vX.Y.Z.apk`；更新說明取自 PROJECT_STATUS「版本歷程」表該版本的列 |
 | 編譯失敗 | `Report build errors` 步驟把 `build.log` 的錯誤行寫成 annotation |
 
-- **簽章（v0.2.0 起）**：共用金鑰 `hoonsor-release.jks`。`app/build.gradle.kts` 從環境變數 `SIGNING_KEYSTORE_PATH`、`SIGNING_STORE_PASSWORD`、`SIGNING_KEY_ALIAS`、`SIGNING_KEY_PASSWORD` 讀取，CI 從 repo Secrets 解出；沒有時退回 debug 簽章。憑證 SHA-256 `514ec00eea070dd3e67b4f6a0c722c9c779497bb0797e7a3446fcca4e4548825`。**不要把金鑰或密碼放回 repo**（舊的 `keystore/screentranslate.jks` 已移到本機 `_trash/`，但仍留在 git 歷史中，視為已公開、不再使用）。
+- **簽章（v0.2.0 起）**：共用金鑰 `hoonsor-release.jks`。`app/build.gradle.kts` 從環境變數 `SIGNING_KEYSTORE_PATH`、`SIGNING_STORE_PASSWORD`、`SIGNING_KEY_ALIAS`、`SIGNING_KEY_PASSWORD` 讀取，CI 從 repo Secrets 解出；沒有 Secrets 時 CI 推 tag 直接失敗，其他編譯改用臨時金鑰（只確認能編譯），本機沒設 `SIGNING_KEYSTORE_PATH` 時退回 debug 簽章。憑證 SHA-256 `514ec00eea070dd3e67b4f6a0c722c9c779497bb0797e7a3446fcca4e4548825`。**不要把金鑰或密碼放回 repo**（舊的 `keystore/screentranslate.jks` 已移到本機 `_trash/`，但仍留在 git 歷史中，視為已公開、不再使用）。
 - 手機端更新：App 內更新（`update/` 套件，移植自鬧鐘 APP）或 Obtainium，只追正式 Release。測試版網址：`https://github.com/hoonsor/APK-Translate/releases/download/latest/ScreenTranslate-latest.apk`
 - 讀取失敗原因：`gh api repos/hoonsor/APK-Translate/check-runs/<job_id>/annotations`（見第 7 節，Claude 雲端環境無法下載完整 log）。
 - 本機編譯（需 Android SDK、JDK 17 或 21）：`./gradlew :app:testDebugUnitTest :app:assembleRelease`。

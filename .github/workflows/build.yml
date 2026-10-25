@@ -40,23 +40,34 @@ jobs:
             exit 1
           fi
 
-      # 共用簽章 hoonsor-release.jks：Secrets 由倬用 setup-hoonsor-signing.ps1 寫入；沒有時 Gradle 退回 debug 簽章
+      # 共用簽章 hoonsor-release.jks：Secrets 由倬用 setup-hoonsor-signing.ps1 寫入。
+      # 沒有 Secrets 時（例如 fork 的 PR）產生一把臨時金鑰，只為了確認能編譯；tag 時直接失敗，不發布這種 APK
       - name: Decode signing key
         env:
           SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
         run: |
+          KS="$RUNNER_TEMP/hoonsor-release.jks"
+          echo "SIGNING_KEYSTORE_PATH=$KS" >> "$GITHUB_ENV"
           if [ -n "$SIGNING_KEYSTORE_B64" ]; then
-            echo "$SIGNING_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/hoonsor-release.jks"
-            echo "SIGNING_KEYSTORE_PATH=$RUNNER_TEMP/hoonsor-release.jks" >> "$GITHUB_ENV"
+            echo "$SIGNING_KEYSTORE_B64" | base64 -d > "$KS"
           else
-            echo "::warning::沒有 SIGNING_KEYSTORE_B64，這次用 debug 簽章。debug 簽章每次編譯都不同，手機無法覆蓋安裝，App 內更新與 Obtainium 都會失敗。"
+            if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+              echo "::error::沒有 SIGNING_KEYSTORE_B64，不能發布正式版"
+              exit 1
+            fi
+            echo "::warning::沒有 SIGNING_KEYSTORE_B64，這次用臨時金鑰簽章。這種 APK 無法覆蓋安裝，App 內更新與 Obtainium 都會失敗。"
+            PW=$(openssl rand -hex 16)
+            echo "::add-mask::$PW"
+            keytool -genkeypair -keystore "$KS" -alias temp -keyalg RSA -keysize 2048 -validity 1 \
+              -storepass "$PW" -keypass "$PW" -dname "CN=Temporary" > /dev/null 2>&1
+            echo "TEMP_SIGNING_PW=$PW" >> "$GITHUB_ENV"
           fi
 
       - name: Unit tests and release APK
         env:
-          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
-          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
-          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD || env.TEMP_SIGNING_PW }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS || 'temp' }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD || env.TEMP_SIGNING_PW }}
         run: |
           set -o pipefail
           chmod +x gradlew

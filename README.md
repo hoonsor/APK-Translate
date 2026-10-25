@@ -128,7 +128,7 @@ v0.2.0 起，正式版由 GitHub Actions 編譯、用共用金鑰 `hoonsor-relea
 
 其他說明：
 - 每次推送 main 都會更新名為 `latest` 的預先發行版（`ScreenTranslate-latest.apk`），給想搶先測試時手動下載；App 內更新與 Obtainium 預設都不會把它當成新版。
-- 簽章 Secrets（`SIGNING_KEYSTORE_B64`、`SIGNING_STORE_PASSWORD`、`SIGNING_KEY_ALIAS`、`SIGNING_KEY_PASSWORD`）已由倬寫入 repo。沒有 Secrets 時 CI 會用 debug 簽章並顯示警告，這種 APK 無法覆蓋安裝，不要拿來發正式版。
+- 簽章 Secrets（`SIGNING_KEYSTORE_B64`、`SIGNING_STORE_PASSWORD`、`SIGNING_KEY_ALIAS`、`SIGNING_KEY_PASSWORD`）已由倬寫入 repo。沒有 Secrets 時，推 tag 的 CI 會直接失敗（不會發出簽錯的正式版）；推 main 或 PR 則改用臨時金鑰簽章並顯示警告，這種 APK 無法覆蓋安裝，只能確認能編譯。
 - 本機 `./gradlew :app:assembleRelease` 沒有設定 `SIGNING_KEYSTORE_PATH` 時會用 debug 簽章，只能自己測試。
 
 ## 🧭 功能使用說明
