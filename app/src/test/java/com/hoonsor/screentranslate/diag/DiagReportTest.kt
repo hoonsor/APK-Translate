@@ -57,6 +57,26 @@ class DiagReportTest {
     }
 
     @Test
+    fun comicFastFirstStats() {
+        fun comic(early: Long?, total: Long, extra: JSONObject.() -> Unit) =
+            JSONObject().put("type", "translate").put("ts", "t").put("mode", "COMIC").put("outcome", "ok")
+                .put("total_ms", total)
+                .put("stages", JSONObject().apply { if (early != null) put("early_ms", early) })
+                .put("calls", JSONArray())
+                .apply(extra)
+        val events = listOf(
+            comic(1500, 9000) { put("comic_upgraded", true) },
+            comic(1400, 15200) { put("comic_error", "MiniMax 超過 15 秒").put("comic_timed_out", true) },
+            comic(1600, 4000) { put("comic_upgrade_cancelled", true) },
+            comic(null, 8000) { },
+        )
+        val text = DiagReport.translateStats(events)
+        assertTrue(text.contains("看到第一個譯文"))
+        assertTrue(text.contains("階段 early_ms"))
+        assertTrue(text, text.contains("視覺模型成功 2、逾時 1、失敗 0、使用者先關閉 1（共 4）"))
+    }
+
+    @Test
     fun allCallsFlattensStandaloneAndNested() {
         val events = listOf(
             run("ok", 1000, call("Groq", true, 900)),

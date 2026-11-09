@@ -277,6 +277,8 @@ private fun BehaviorCard(prefs: Prefs, serviceOn: Boolean) {
     var alpha by remember { mutableStateOf(prefs.bubbleAlpha) }
     var maxSp by remember { mutableStateOf(prefs.maxTextSp.toFloat()) }
     var autoSwipe by remember { mutableStateOf(prefs.autoAfterSwipe) }
+    var fastFirst by remember { mutableStateOf(prefs.comicFastFirst) }
+    var comicLimit by remember { mutableStateOf(prefs.comicTimeoutSec.toFloat()) }
 
     SectionCard("浮動按鈕與翻譯") {
         LabeledSwitch("顯示浮動小圓點", bubbleOn, enabled = serviceOn) {
@@ -293,9 +295,24 @@ private fun BehaviorCard(prefs: Prefs, serviceOn: Boolean) {
         }
         Text(
             if (mode == TranslateMode.FAST) "快速模式：本機 OCR 辨識文字 → 只把文字送去翻譯。最快、最省額度。"
-            else "漫畫模式：截圖和 OCR 結果一起送給視覺模型，修正手寫字體並補上漏掉的對話框。較準、多 1～3 秒。小圓點右上角會有琥珀色點。",
+            else "漫畫模式：截圖和 OCR 結果一起送給視覺模型，修正手寫字體並補上漏掉的對話框。較準，但視覺模型常要 5～15 秒。小圓點右上角會有琥珀色點。",
             color = TextLo, fontSize = 13.sp, lineHeight = 19.sp,
         )
+        if (mode == TranslateMode.COMIC) {
+            LabeledSwitch("先顯示快速譯文，視覺模型回來再換成較準的版本", fastFirst) {
+                fastFirst = it
+                prefs.comicFastFirst = it
+            }
+            LabeledSlider("視覺模型等待上限", "${comicLimit.roundToInt()} 秒", comicLimit, 5f..60f) {
+                comicLimit = it
+                prefs.comicTimeoutSec = it.roundToInt()
+            }
+            Text(
+                if (fastFirst) "超過上限就保留快速譯文。精修中小圓點會持續轉圈；點空白關閉譯文會一併取消精修。"
+                else "關閉時會等視覺模型回來才顯示；超過上限或失敗才改用快速模式。",
+                color = TextLo, fontSize = 13.sp, lineHeight = 19.sp,
+            )
+        }
 
         Text("原文語言（OCR 辨識用）", color = TextLo, fontSize = 13.sp)
         ChipRow(OcrScript.entries, script, { it.label }) {

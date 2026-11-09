@@ -150,6 +150,16 @@ class Prefs(context: Context) {
         get() = sp.getInt("swipe_settle_ms", 900)
         set(v) = sp.edit().putInt("swipe_settle_ms", v).apply()
 
+    /** 漫畫模式先顯示快速模式譯文，視覺模型回來後再換成較準的譯文 */
+    var comicFastFirst: Boolean
+        get() = sp.getBoolean("comic_fast_first", true)
+        set(v) = sp.edit().putBoolean("comic_fast_first", v).apply()
+
+    /** 漫畫模式等視覺模型的時限（秒），超過就保留快速模式譯文 */
+    var comicTimeoutSec: Int
+        get() = sp.getInt("comic_timeout_sec", 15).coerceIn(5, 60)
+        set(v) = sp.edit().putInt("comic_timeout_sec", v.coerceIn(5, 60)).apply()
+
     /** 翻譯框文字大小上限（sp） */
     var maxTextSp: Int
         get() = sp.getInt("max_text_sp", 18)

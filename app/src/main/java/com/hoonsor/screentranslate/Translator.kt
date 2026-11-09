@@ -4,8 +4,14 @@ import android.graphics.Bitmap
 import android.graphics.Rect
 import android.util.Base64
 import android.util.LruCache
+import com.hoonsor.screentranslate.diag.DiagLog
 import com.hoonsor.screentranslate.diag.RunTrace
 import com.hoonsor.screentranslate.diag.timed
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -22,7 +28,12 @@ data class TranslationResult(
     val note: String? = null,
     /** 分段耗時（顯示在膠囊上），例如「截圖 0.2・OCR 0.3・Groq 1.8」 */
     val breakdown: String? = null,
+    /** 漫畫模式「先快後準」：最終結果就是已先顯示的快速譯文（視覺模型逾時或失敗），不用重畫 */
+    val keepsEarly: Boolean = false,
 )
+
+/** 「先快後準」先顯示的結果；回傳 true 表示已顯示在畫面上 */
+typealias EarlyResultSink = suspend (TranslationResult) -> Boolean
 
 /**
  * 翻譯流程：OCR → （快速模式）文字 LLM 或（漫畫模式）圖片 + OCR 混合 → 對回座標。
@@ -32,8 +43,18 @@ class Translator(private val prefs: Prefs) {
 
     private val ocr = OcrEngine()
     private val cache = LruCache<String, Map<Int, String>>(60)
+    private val comicCache = LruCache<String, List<OverlayItem>>(30)
 
-    suspend fun translateScreen(screen: Bitmap, statusBarPx: Int, trace: RunTrace? = null): TranslationResult {
+    /**
+     * @param onEarly 漫畫模式「先快後準」時，快速譯文一好就交給它先顯示；
+     *   之後回傳的最終結果若 [TranslationResult.keepsEarly] 為 false，代表換成視覺模型的譯文。
+     */
+    suspend fun translateScreen(
+        screen: Bitmap,
+        statusBarPx: Int,
+        trace: RunTrace? = null,
+        onEarly: EarlyResultSink? = null,
+    ): TranslationResult {
         val t0 = System.currentTimeMillis()
         val script = prefs.ocrScript
         val blocks = trace.timed("ocr_ms") { ocr.recognize(screen, script, statusBarPx) }
@@ -47,12 +68,28 @@ class Translator(private val prefs: Prefs) {
         if (mode == TranslateMode.COMIC) {
             val visionCfg = prefs.provider(prefs.vision)
             if (visionCfg.isUsable) {
+                val comicKey = "C|${visionCfg.id}|${visionCfg.model}|" + blocks.joinToString("\u0001") { it.text }
+                if (blocks.isNotEmpty()) comicCache.get(comicKey)?.let { hit ->
+                    trace?.put("cache_hit", true)
+                    trace?.put("used_provider", visionCfg.id.label)
+                    return TranslationResult(hit, "快取・漫畫", System.currentTimeMillis() - t0)
+                }
+                // 有 OCR 文字才有快速模式可以退，才需要時限；沒有文字時只能等視覺模型
+                val limitMs = if (blocks.isEmpty()) null else prefs.comicTimeoutSec * 1000L
+                trace?.put("comic_limit_ms", limitMs)
+                if (limitMs != null && onEarly != null && prefs.comicFastFirst) {
+                    trace?.put("comic_fast_first", true)
+                    return trace.timed("llm_ms") {
+                        comicFastFirst(screen, blocks, visionCfg, limitMs, comicKey, t0, trace, onEarly)
+                    }
+                }
                 try {
-                    val items = trace.timed("llm_ms") { translateComic(screen, blocks, visionCfg, trace) }
+                    val items = trace.timed("llm_ms") { comicWithLimit(screen, blocks, visionCfg, limitMs, trace) }
+                    if (blocks.isNotEmpty()) comicCache.put(comicKey, items)
                     trace?.put("used_provider", visionCfg.id.label)
                     return TranslationResult(items, "${visionCfg.id.label}・漫畫", System.currentTimeMillis() - t0)
                 } catch (e: Exception) {
-                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    if (e is CancellationException) throw e
                     trace?.put("comic_error", e.message?.take(200))
                     if (blocks.isEmpty()) throw e
                     trace?.put("comic_fell_back_to_fast", true)
@@ -66,6 +103,85 @@ class Translator(private val prefs: Prefs) {
             return TranslationResult(emptyList(), "OCR", System.currentTimeMillis() - t0, note = "畫面上沒有偵測到需要翻譯的文字")
         }
         return trace.timed("llm_ms") { translateFast(blocks, t0, trace) }
+    }
+
+    // ── 漫畫模式「先快後準」 ─────────────────────────────
+
+    /**
+     * 快速模式與視覺模型同時送出：快速譯文一好就先顯示（約 1～2 秒），
+     * 視覺模型在 [limitMs] 內回來就換成它的譯文，否則保留快速譯文。
+     */
+    private suspend fun comicFastFirst(
+        screen: Bitmap,
+        blocks: List<OcrBlock>,
+        visionCfg: ProviderConfig,
+        limitMs: Long,
+        comicKey: String,
+        t0: Long,
+        trace: RunTrace?,
+        onEarly: EarlyResultSink,
+    ): TranslationResult = coroutineScope {
+        val comic = async {
+            val tc = System.nanoTime()
+            try {
+                Result.success(comicWithLimit(screen, blocks, visionCfg, limitMs, trace))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Result.failure(e)
+            } finally {
+                trace?.stage("comic_ms", (System.nanoTime() - tc) / 1_000_000)
+            }
+        }
+        val fast = try {
+            translateFast(blocks, t0, trace)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            trace?.put("fast_error", e.message?.take(200))
+            null
+        }
+        var early: TranslationResult? = null
+        if (fast != null && fast.items.isNotEmpty()) {
+            val shown = fast.copy(providerLabel = "${fast.providerLabel}・快速（${visionCfg.id.label} 精修中）")
+            if (onEarly(shown)) early = shown
+        }
+        trace?.put("early_shown", early != null)
+
+        val res = comic.await()
+        val items = res.getOrNull()
+        if (items != null) {
+            comicCache.put(comicKey, items)
+            trace?.put("used_provider", visionCfg.id.label)
+            trace?.put("comic_upgraded", early != null)
+            return@coroutineScope TranslationResult(items, "${visionCfg.id.label}・漫畫", System.currentTimeMillis() - t0)
+        }
+        val err = res.exceptionOrNull()
+        trace?.put("comic_error", err?.message?.take(200))
+        val note = "漫畫模式沒成功，保留快速譯文（${err?.message?.take(40)}）"
+        val e0 = early
+        when {
+            e0 != null -> e0.copy(note = note, keepsEarly = true)
+            fast != null -> fast.copy(note = note)
+            else -> throw err ?: LlmException("翻譯失敗")
+        }
+    }
+
+    /** 視覺模型加時限；逾時會中斷連線並丟出可讀的錯誤 */
+    private suspend fun comicWithLimit(
+        screen: Bitmap,
+        blocks: List<OcrBlock>,
+        cfg: ProviderConfig,
+        limitMs: Long?,
+        trace: RunTrace?,
+    ): List<OverlayItem> {
+        if (limitMs == null) return translateComic(screen, blocks, cfg, trace)
+        return try {
+            withTimeout(limitMs) { translateComic(screen, blocks, cfg, trace) }
+        } catch (e: TimeoutCancellationException) {
+            trace?.put("comic_timed_out", true)
+            throw LlmException("${cfg.id.label} 超過 ${limitMs / 1000} 秒")
+        }
     }
 
     // ── 快速模式：純文字翻譯 ─────────────────────────────
@@ -94,7 +210,7 @@ class Translator(private val prefs: Prefs) {
                 val note = if (index > 0) "主要引擎失敗，已改用 ${cfg.id.label}（${lastError?.message?.take(60)}）" else null
                 return TranslationResult(toItems(blocks, map), cfg.id.label, System.currentTimeMillis() - t0, note)
             } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
+                if (e is CancellationException) throw e
                 lastError = e
             }
         }
@@ -186,7 +302,11 @@ class Translator(private val prefs: Prefs) {
             .put(JSONObject().put("role", "user").put("content", content))
 
         val reply = LlmClient.chat(cfg, messages, jsonMode = false, purpose = "comic", trace = trace)
-        val obj = extractJsonObject(reply) ?: throw LlmException("${cfg.id.label} 回傳格式無法解析：${reply.take(100)}")
+        val obj = extractJsonObject(reply)
+        if (obj == null) {
+            trace?.put("comic_parse", parseDiag(reply, null, blocks))
+            throw LlmException("${cfg.id.label} 回傳格式無法解析：${reply.take(100)}")
+        }
 
         val items = ArrayList<OverlayItem>()
         val byId = blocks.associateBy { it.id }
@@ -209,8 +329,38 @@ class Translator(private val prefs: Prefs) {
                 items += OverlayItem(r, zh, o.optString("src"))
             }
         }
-        if (items.isEmpty() && blocks.isNotEmpty()) throw LlmException("${cfg.id.label} 沒有回傳任何譯文")
+        if (items.isEmpty() && blocks.isNotEmpty()) {
+            trace?.put("comic_parse", parseDiag(reply, obj, blocks))
+            throw LlmException("${cfg.id.label} 沒有回傳任何譯文")
+        }
         return items
+    }
+
+    /**
+     * 漫畫模式解析失敗時的結構摘要（不含畫面文字，除非使用者開了「紀錄包含原文與譯文」）：
+     * 有沒有 JSON、用了哪些欄位、t 有幾項、id 對不對得上、幾項是 "-"。
+     */
+    private fun parseDiag(reply: String, obj: JSONObject?, blocks: List<OcrBlock>): JSONObject {
+        val d = JSONObject()
+            .put("reply_chars", reply.length)
+            .put("has_json", obj != null)
+            .put("has_code_fence", reply.contains("```"))
+            .put("ocr_ids", JSONArray(blocks.map { it.id }))
+        if (obj != null) {
+            d.put("keys", JSONArray(obj.keys().asSequence().toList()))
+            val t = obj.optJSONArray("t")
+            if (t != null) {
+                val ids = (0 until t.length()).mapNotNull { t.optJSONObject(it)?.opt("id")?.toString() }
+                val zhs = (0 until t.length()).mapNotNull { t.optJSONObject(it)?.optString("zh") }
+                d.put("t_len", t.length())
+                d.put("t_ids", JSONArray(ids))
+                d.put("t_dash", zhs.count { it.trim() == "-" })
+                d.put("t_blank", zhs.count { it.isBlank() })
+            }
+            d.put("extra_len", obj.optJSONArray("extra")?.length() ?: 0)
+        }
+        if (DiagLog.includeText) d.put("reply", reply.take(1500))
+        return d
     }
 
     private fun normBox(r: Rect, w: Int, h: Int) = JSONArray()

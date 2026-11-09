@@ -93,6 +93,9 @@ docs/                                   # FEATURES、DESIGN、AGENT_API、agent-
      快速模式：[{id,text}] → 主要引擎（失敗改備援）→ {"t":[{id,zh}]}
      漫畫模式：JPEG（長邊 ≤1600px）＋ OCR 區塊（座標正規化 0~1000）→ 視覺模型
                → {"t":[...], "extra":[{box,src,zh}]}；失敗自動退回快速模式
+     漫畫模式「先快後準」（v0.3.1，預設開）：快速與視覺同時送 → 快速譯文經 onEarly 先顯示
+               → 視覺模型在 comicTimeoutSec（預設 15 秒）內回來就換掉；否則 keepsEarly 保留快速譯文
+               → 使用者關閉／翻頁時 dismissOverlay 取消 job（awaitingUpgrade），OkHttp 呼叫隨之 cancel
  → ResultOverlayView 在原座標畫譯文框；小圓點移到最上層
 ```
 
@@ -130,6 +133,9 @@ docs/                                   # FEATURES、DESIGN、AGENT_API、agent-
 | D14 | `main` 每次推送都重建 `latest` 預先發行版 | 手機只要記一個固定網址就能拿到最新版 |
 | D15 | 長按小圓點切換快速／漫畫模式，漫畫模式時小圓點右上角有琥珀色點 | 不用進設定頁就能換模式，且看得出目前模式 |
 | D16 | 日文 OCR 時閱讀順序改為由右而左 | 日文漫畫的閱讀方向 |
+| D18 | 漫畫模式預設「先快後準」，視覺模型時限 15 秒（5～60 可調） | v0.3.0 紀錄：MiniMax-M3.1-Flash 伺服器處理 8.7 秒、另一次 60 秒逾時，兩次都沒譯文；Groq 約 1 秒。先顯示快速譯文，使用者不必等 |
+| D19 | `LlmClient` 用 `enqueue`＋`invokeOnCancellation`，不用 `execute()` | `execute()` 在 `withContext(IO)` 裡不能被協程取消，`withTimeout` 會照樣卡到 readTimeout 60 秒 |
+| D20 | 連線預熱打不帶 key 的 `GET /models`，30 秒內有活動就不送 | 只為建 DNS＋TCP＋TLS 連線（VPN 下約 1 秒），不送畫面內容、不耗 token |
 | D17 | Repo 名稱 `APK-Photo` → **`APK-Translate`** | 倬的決定：`APK-Photo` 是保留給另一個相簿 App 的 |
 
 ### 放棄的方案（含原因）
@@ -150,6 +156,7 @@ docs/                                   # FEATURES、DESIGN、AGENT_API、agent-
 - 事件類型：`translate`（一次點擊或翻頁自動翻譯，含 `stages`、`calls`）、`llm`（不屬於翻譯的單次呼叫，例如設定頁測試）、`probe`（檢測所有引擎）、`error`。
 - 每筆呼叫記：`dns_ms`、`connect_ms`、`tls_ms`、`reused`、`upload_ms`、`server_ms`（送完請求→收到回應標頭，非串流時約等於模型處理時間）、`total_ms`、`http`、`usage`（原樣，含推理 tokens）、`reasoning_chars`、`x-ratelimit-*` 標頭、錯誤。
 - 隱私：不記 API key（寫入與匯出各遮蔽一次）；原文、譯文、模型回覆只在「紀錄包含畫面原文與譯文」開啟時記錄（預設關閉）。
+- v0.3.1 新增：`stages.early_ms`（點擊→先顯示快速譯文）、`stages.comic_ms`、`comic_limit_ms`、`comic_fast_first`、`early_shown`、`comic_upgraded`、`comic_timed_out`、`comic_upgrade_cancelled`、`fast_error`、`prewarm`（有預熱的主機）、`comic_parse`（漫畫模式解析失敗時的結構摘要：`has_json`、`keys`、`t_len`、`t_ids`、`t_dash`、`ocr_ids`；開了包含原文才有 `reply`）；呼叫被中止時 `cancelled: true`。
 - 分析流程：倬匯出 `ScreenTranslate-diag-*.txt` → 先看「翻譯統計」與「引擎呼叫統計」找慢的段落，再查原始 JSONL。
 
 ## 6. 絕對不要重踩的坑

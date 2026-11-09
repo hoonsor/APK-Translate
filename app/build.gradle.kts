@@ -16,8 +16,8 @@ android {
         minSdk = 30          // Android 11：AccessibilityService.takeScreenshot() 的最低版本
         targetSdk = 35
         // 發新版：改這兩行後 push vX.Y.Z tag（tag 必須與 versionName 相同，CI 會檢查）
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.3.1"
     }
 
     // 金鑰與密碼都不放進 repo（repo 是公開的），一律從環境變數讀

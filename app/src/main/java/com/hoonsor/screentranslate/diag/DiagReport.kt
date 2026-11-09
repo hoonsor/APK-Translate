@@ -59,10 +59,23 @@ object DiagReport {
         val byMode = runs.groupingBy { it.optString("mode", "?") }.eachCount()
         appendLine("- 模式：" + byMode.entries.joinToString("、") { "${it.key} ${it.value}" })
         val ok = runs.filter { it.optString("outcome") == "ok" }
-        appendLine("- 成功的總耗時（點擊→顯示）：${dist(ok.map { it.optLong("total_ms") })}")
-        for (stage in listOf("capture_ms", "ocr_ms", "jpeg_ms", "llm_ms")) {
+        appendLine("- 成功的總耗時（點擊→最終結果）：${dist(ok.map { it.optLong("total_ms") })}")
+        // 先快後準：使用者實際等到第一個譯文的時間（有先顯示用 early_ms，否則用 total_ms）
+        val firstSeen = ok.map { r -> r.optJSONObject("stages")?.takeIf { it.has("early_ms") }?.optLong("early_ms") ?: r.optLong("total_ms") }
+        if (ok.any { it.optJSONObject("stages")?.has("early_ms") == true }) {
+            appendLine("- 看到第一個譯文（點擊→先顯示）：${dist(firstSeen)}")
+        }
+        for (stage in listOf("capture_ms", "ocr_ms", "jpeg_ms", "llm_ms", "early_ms", "comic_ms")) {
             val v = ok.mapNotNull { r -> r.optJSONObject("stages")?.takeIf { it.has(stage) }?.optLong(stage) }
             if (v.isNotEmpty()) appendLine("- 階段 $stage：${dist(v)}")
+        }
+        val comicRuns = runs.filter { it.optString("mode") == "COMIC" }
+        if (comicRuns.isNotEmpty()) {
+            val upgraded = comicRuns.count { it.optString("outcome") == "ok" && !it.has("comic_error") && !it.optBoolean("cache_hit") && !it.optBoolean("comic_upgrade_cancelled") }
+            val timedOut = comicRuns.count { it.optBoolean("comic_timed_out") }
+            val failed = comicRuns.count { it.has("comic_error") && !it.optBoolean("comic_timed_out") }
+            val cancelled = comicRuns.count { it.optBoolean("comic_upgrade_cancelled") }
+            appendLine("- 漫畫模式：視覺模型成功 $upgraded、逾時 $timedOut、失敗 $failed、使用者先關閉 $cancelled（共 ${comicRuns.size}）")
         }
         val fb = runs.count { it.optBoolean("fallback_used") }
         if (fb > 0) appendLine("- 改用備援：$fb 次")

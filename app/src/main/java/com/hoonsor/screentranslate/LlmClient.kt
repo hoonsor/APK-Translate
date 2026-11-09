@@ -2,9 +2,13 @@ package com.hoonsor.screentranslate
 
 import com.hoonsor.screentranslate.diag.DiagLog
 import com.hoonsor.screentranslate.diag.RunTrace
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Headers
 import okhttp3.Connection
 import okhttp3.EventListener
 import okhttp3.Handshake
@@ -20,7 +24,10 @@ import java.io.IOException
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.Proxy
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 class LlmException(message: String) : IOException(message)
 
@@ -37,6 +44,66 @@ object LlmClient {
 
     private val JSON_TYPE = "application/json; charset=utf-8".toMediaType()
     private val THINK_REGEX = Regex("<think>[\\s\\S]*?</think>", RegexOption.IGNORE_CASE)
+
+    /** 每個主機最後一次有連線活動的時間（預熱用，避免重複預熱） */
+    private val lastActive = ConcurrentHashMap<String, Long>()
+    private const val WARM_INTERVAL_MS = 30_000L
+
+    /** 已讀完的回應（在 OkHttp 執行緒讀完 body，協程端只處理字串） */
+    private class RawResponse(val code: Int, val text: String, val protocol: Protocol, val headers: Headers) {
+        val isSuccessful get() = code in 200..299
+    }
+
+    /**
+     * 執行請求，協程被取消（例如漫畫模式超過時限、使用者關閉結果）時會真的中斷連線，
+     * 不會像 execute() 一樣卡到 readTimeout 才結束。
+     */
+    private suspend fun Call.await(): RawResponse = suspendCancellableCoroutine { cont ->
+        cont.invokeOnCancellation { runCatching { cancel() } }
+        enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                if (cont.isActive) cont.resumeWithException(e)
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    val raw = response.use { RawResponse(it.code, it.body?.string().orEmpty(), it.protocol, it.headers) }
+                    if (cont.isActive) cont.resume(raw)
+                } catch (e: Exception) {
+                    if (cont.isActive) cont.resumeWithException(e)
+                }
+            }
+        })
+    }
+
+    /**
+     * 連線預熱：先跟引擎主機建好 DNS＋TCP＋TLS 連線放進連線池，真正翻譯時直接重用。
+     * 只打不帶 key 的 GET /models（回 401 也沒關係，目的只是建連線），不送任何畫面內容。
+     * @return 這次有送出預熱的主機
+     */
+    fun prewarm(cfgs: Collection<ProviderConfig>): List<String> {
+        val now = System.currentTimeMillis()
+        val warmed = ArrayList<String>()
+        cfgs.filter { it.baseUrl.startsWith("http") }.distinctBy { hostOf(it.baseUrl) }.forEach { cfg ->
+            val host = hostOf(cfg.baseUrl)
+            if (now - (lastActive[host] ?: 0L) < WARM_INTERVAL_MS) return@forEach
+            lastActive[host] = now
+            val req = runCatching {
+                Request.Builder().url(cfg.baseUrl.trimEnd('/') + "/models").get().build()
+            }.getOrNull() ?: return@forEach
+            http.newCall(req).enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    lastActive.remove(host)
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    response.close()
+                }
+            })
+            warmed += host
+        }
+        return warmed
+    }
 
     /** 記進診斷紀錄的回應標頭（額度與排隊資訊，沒有機密） */
     private val LOGGED_HEADERS = setOf("retry-after", "x-groq-region")
@@ -94,27 +161,32 @@ object LlmClient {
         val timer = NetTimer()
         val t0 = System.nanoTime()
         var retryWithoutJsonMode = false
+        val host = hostOf(cfg.baseUrl)
         val result: String = try {
-            http.newBuilder().eventListener(timer).build().newCall(req).execute().use { resp ->
-                val text = resp.body?.string().orEmpty()
-                timer.fill(rec)
-                rec.put("http", resp.code)
-                rec.put("resp_bytes", text.length)
-                rec.put("protocol", resp.protocol.toString())
-                putHeaders(rec, resp)
-                if (!resp.isSuccessful) {
-                    // 部分供應商不支援 response_format，自動去掉重試一次
-                    if (jsonMode && resp.code == 400 && text.contains("response_format", ignoreCase = true)) {
-                        retryWithoutJsonMode = true
-                        return@use ""
-                    }
+            val resp = http.newBuilder().eventListener(timer).build().newCall(req).await()
+            lastActive[host] = System.currentTimeMillis()
+            val text = resp.text
+            timer.fill(rec)
+            rec.put("http", resp.code)
+            rec.put("resp_bytes", text.length)
+            rec.put("protocol", resp.protocol.toString())
+            putHeaders(rec, resp.headers)
+            if (!resp.isSuccessful) {
+                // 部分供應商不支援 response_format，自動去掉重試一次
+                if (jsonMode && resp.code == 400 && text.contains("response_format", ignoreCase = true)) {
+                    retryWithoutJsonMode = true
+                    ""
+                } else {
                     throw LlmException("${cfg.id.label} HTTP ${resp.code}：${extractError(text)}")
                 }
+            } else {
                 parseReply(cfg, text, rec)
             }
         } catch (e: Exception) {
             if (!rec.has("http")) timer.fill(rec)
-            rec.put("ok", false).put("error", (e.message ?: e.javaClass.simpleName).take(300))
+            val msg = if (e is CancellationException) "已中止（超過時限或使用者關閉）" else (e.message ?: e.javaClass.simpleName)
+            rec.put("ok", false).put("error", msg.take(300))
+            if (e is CancellationException) rec.put("cancelled", true)
             rec.put("total_ms", (System.nanoTime() - t0) / 1_000_000)
             log(rec, trace)
             throw e
@@ -172,11 +244,11 @@ object LlmClient {
         if (trace != null) trace.addCall(rec) else DiagLog.record("llm", rec)
     }
 
-    private fun putHeaders(rec: JSONObject, resp: Response) {
+    private fun putHeaders(rec: JSONObject, headers: Headers) {
         val h = JSONObject()
-        resp.headers.names().forEach { name ->
+        headers.names().forEach { name ->
             val n = name.lowercase()
-            if (n.startsWith("x-ratelimit") || n in LOGGED_HEADERS) h.put(n, resp.header(name))
+            if (n.startsWith("x-ratelimit") || n in LOGGED_HEADERS) h.put(n, headers[name])
         }
         if (h.length() > 0) rec.put("headers", h)
     }
