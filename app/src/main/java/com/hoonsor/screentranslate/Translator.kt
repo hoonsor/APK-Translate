@@ -4,6 +4,8 @@ import android.graphics.Bitmap
 import android.graphics.Rect
 import android.util.Base64
 import android.util.LruCache
+import com.hoonsor.screentranslate.diag.RunTrace
+import com.hoonsor.screentranslate.diag.timed
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
@@ -18,6 +20,8 @@ data class TranslationResult(
     val providerLabel: String,
     val elapsedMs: Long,
     val note: String? = null,
+    /** 分段耗時（顯示在膠囊上），例如「截圖 0.2・OCR 0.3・Groq 1.8」 */
+    val breakdown: String? = null,
 )
 
 /**
@@ -29,20 +33,30 @@ class Translator(private val prefs: Prefs) {
     private val ocr = OcrEngine()
     private val cache = LruCache<String, Map<Int, String>>(60)
 
-    suspend fun translateScreen(screen: Bitmap, statusBarPx: Int): TranslationResult {
+    suspend fun translateScreen(screen: Bitmap, statusBarPx: Int, trace: RunTrace? = null): TranslationResult {
         val t0 = System.currentTimeMillis()
-        val blocks = ocr.recognize(screen, prefs.ocrScript, statusBarPx)
+        val script = prefs.ocrScript
+        val blocks = trace.timed("ocr_ms") { ocr.recognize(screen, script, statusBarPx) }
         val mode = prefs.mode
+        trace?.put("mode", mode.name)
+        trace?.put("ocr_script", script.name)
+        trace?.put("screen", "${screen.width}x${screen.height}")
+        trace?.put("ocr_blocks", blocks.size)
+        trace?.put("ocr_chars", blocks.sumOf { it.text.length })
 
         if (mode == TranslateMode.COMIC) {
             val visionCfg = prefs.provider(prefs.vision)
             if (visionCfg.isUsable) {
                 try {
-                    val items = translateComic(screen, blocks, visionCfg)
+                    val items = trace.timed("llm_ms") { translateComic(screen, blocks, visionCfg, trace) }
+                    trace?.put("used_provider", visionCfg.id.label)
                     return TranslationResult(items, "${visionCfg.id.label}・漫畫", System.currentTimeMillis() - t0)
                 } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    trace?.put("comic_error", e.message?.take(200))
                     if (blocks.isEmpty()) throw e
-                    val r = translateFast(blocks, t0)
+                    trace?.put("comic_fell_back_to_fast", true)
+                    val r = trace.timed("fast_after_comic_ms") { translateFast(blocks, t0, trace) }
                     return r.copy(note = "漫畫模式失敗，已改用快速模式（${e.message?.take(60)}）")
                 }
             }
@@ -51,14 +65,15 @@ class Translator(private val prefs: Prefs) {
         if (blocks.isEmpty()) {
             return TranslationResult(emptyList(), "OCR", System.currentTimeMillis() - t0, note = "畫面上沒有偵測到需要翻譯的文字")
         }
-        return translateFast(blocks, t0)
+        return trace.timed("llm_ms") { translateFast(blocks, t0, trace) }
     }
 
     // ── 快速模式：純文字翻譯 ─────────────────────────────
 
-    private suspend fun translateFast(blocks: List<OcrBlock>, t0: Long): TranslationResult {
+    private suspend fun translateFast(blocks: List<OcrBlock>, t0: Long, trace: RunTrace? = null): TranslationResult {
         val key = "F|" + blocks.joinToString("\u0001") { it.text }
         cache.get(key)?.let { hit ->
+            trace?.put("cache_hit", true)
             return TranslationResult(toItems(blocks, hit), "快取", System.currentTimeMillis() - t0)
         }
 
@@ -71,11 +86,15 @@ class Translator(private val prefs: Prefs) {
         var lastError: Exception? = null
         for ((index, cfg) in chain.withIndex()) {
             try {
-                val map = translateTexts(cfg, blocks)
+                val map = translateTexts(cfg, blocks, "fast", trace)
                 cache.put(key, map)
+                trace?.put("used_provider", cfg.id.label)
+                trace?.put("fallback_used", index > 0)
+                trace?.put("missing_ids", blocks.count { it.id !in map })
                 val note = if (index > 0) "主要引擎失敗，已改用 ${cfg.id.label}（${lastError?.message?.take(60)}）" else null
                 return TranslationResult(toItems(blocks, map), cfg.id.label, System.currentTimeMillis() - t0, note)
             } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
                 lastError = e
             }
         }
@@ -88,17 +107,32 @@ class Translator(private val prefs: Prefs) {
             OcrBlock(1, "WAIT! YOU CAN'T JUST LEAVE ME HERE!", Rect()),
             OcrBlock(2, "Watch me.", Rect()),
         )
-        val map = translateTexts(cfg, sample)
+        val map = translateTexts(cfg, sample, "test", null)
         return sample.joinToString("\n") { "${it.text} → ${map[it.id] ?: "（缺）"}" }
     }
 
-    private suspend fun translateTexts(cfg: ProviderConfig, blocks: List<OcrBlock>): Map<Int, String> {
+    /** 給「檢測所有引擎」用：同 [testProvider]，但呼叫紀錄併入 [trace] */
+    suspend fun testProviderTraced(cfg: ProviderConfig, trace: RunTrace): String {
+        val sample = listOf(
+            OcrBlock(1, "WAIT! YOU CAN'T JUST LEAVE ME HERE!", Rect()),
+            OcrBlock(2, "Watch me.", Rect()),
+        )
+        val map = translateTexts(cfg, sample, "probe-text", trace)
+        return sample.joinToString(" / ") { map[it.id] ?: "（缺）" }
+    }
+
+    private suspend fun translateTexts(
+        cfg: ProviderConfig,
+        blocks: List<OcrBlock>,
+        purpose: String,
+        trace: RunTrace?,
+    ): Map<Int, String> {
         val input = JSONArray()
         blocks.forEach { input.put(JSONObject().put("id", it.id).put("text", it.text)) }
         val messages = JSONArray()
             .put(JSONObject().put("role", "system").put("content", TEXT_SYSTEM_PROMPT))
             .put(JSONObject().put("role", "user").put("content", input.toString()))
-        val reply = LlmClient.chat(cfg, messages, jsonMode = true)
+        val reply = LlmClient.chat(cfg, messages, jsonMode = true, purpose = purpose, trace = trace)
         val map = parseIdMap(reply)
         if (map.isEmpty()) throw LlmException("${cfg.id.label} 回傳格式無法解析：${reply.take(100)}")
         return map
@@ -112,7 +146,13 @@ class Translator(private val prefs: Prefs) {
 
     // ── 漫畫模式：截圖 + OCR 區塊一起給視覺模型 ───────────────
 
-    private suspend fun translateComic(screen: Bitmap, blocks: List<OcrBlock>, cfg: ProviderConfig): List<OverlayItem> {
+    private suspend fun translateComic(
+        screen: Bitmap,
+        blocks: List<OcrBlock>,
+        cfg: ProviderConfig,
+        trace: RunTrace?,
+    ): List<OverlayItem> {
+        val tJpeg = System.nanoTime()
         val maxSide = 1600f
         val scale = minOf(1f, maxSide / max(screen.width, screen.height))
         val w = (screen.width * scale).roundToInt()
@@ -124,6 +164,8 @@ class Translator(private val prefs: Prefs) {
         }
         if (small !== screen) small.recycle()
         val dataUrl = "data:image/jpeg;base64," + Base64.encodeToString(jpeg, Base64.NO_WRAP)
+        trace?.stage("jpeg_ms", (System.nanoTime() - tJpeg) / 1_000_000)
+        trace?.put("image", "${w}x${h} jpeg ${jpeg.size / 1024} KB")
 
         // OCR 區塊座標換成 0~1000 正規化，方便模型對照圖片
         val ocrJson = JSONArray()
@@ -143,7 +185,7 @@ class Translator(private val prefs: Prefs) {
             .put(JSONObject().put("role", "system").put("content", COMIC_SYSTEM_PROMPT))
             .put(JSONObject().put("role", "user").put("content", content))
 
-        val reply = LlmClient.chat(cfg, messages, jsonMode = false)
+        val reply = LlmClient.chat(cfg, messages, jsonMode = false, purpose = "comic", trace = trace)
         val obj = extractJsonObject(reply) ?: throw LlmException("${cfg.id.label} 回傳格式無法解析：${reply.take(100)}")
 
         val items = ArrayList<OverlayItem>()

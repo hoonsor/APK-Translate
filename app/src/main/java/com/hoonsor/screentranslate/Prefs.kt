@@ -154,4 +154,16 @@ class Prefs(context: Context) {
     var maxTextSp: Int
         get() = sp.getInt("max_text_sp", 18)
         set(v) = sp.edit().putInt("max_text_sp", v).apply()
+
+    // ── 診斷紀錄 ─────────────────────────────────────
+
+    /** 記錄每次翻譯的耗時、引擎呼叫與錯誤（不含 API key） */
+    var diagEnabled: Boolean
+        get() = sp.getBoolean("diag_enabled", true)
+        set(v) = sp.edit().putBoolean("diag_enabled", v).apply()
+
+    /** 紀錄中包含畫面原文與譯文（預設關閉，畫面可能有個資） */
+    var diagIncludeText: Boolean
+        get() = sp.getBoolean("diag_include_text", false)
+        set(v) = sp.edit().putBoolean("diag_include_text", v).apply()
 }

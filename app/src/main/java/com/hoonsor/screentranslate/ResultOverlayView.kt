@@ -60,7 +60,9 @@ class ResultOverlayView(
         color = Color.argb(235, 0xE6, 0xEC, 0xF5)
         textSize = 12f * sp
     }
-    private val pillLabel: String = "${result.providerLabel}・${"%.1f".format(result.elapsedMs / 1000f)}s　點空白關閉・按住看原文・滑動翻頁"
+    // 有分段耗時就顯示（截圖・OCR・各引擎），方便判斷慢在哪一段；操作提示放後面，太長時會被截掉
+    private val pillLabel: String = "${result.providerLabel}・共 ${"%.1f".format(result.elapsedMs / 1000f)}s" +
+        (result.breakdown?.let { "（$it）" } ?: "") + "　點空白關閉・按住看原文・滑動翻頁"
 
     // 觸控狀態
     private val slop = ViewConfiguration.get(context).scaledTouchSlop.toFloat()

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 診斷紀錄匯出：只開放 cache/export 給分享對象讀取 -->
+<paths>
+    <cache-path name="export" path="export/" />
+</paths>

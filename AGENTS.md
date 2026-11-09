@@ -68,7 +68,13 @@ app/src/main/java/com/hoonsor/screentranslate/
  ├── LlmClient.kt                       # OpenAI 相容用戶端：chat、listModels、錯誤解析、<think> 移除
  ├── TranslateTileService.kt            # 快速設定面板開關
  ├── MainActivity.kt                    # 設定頁（Compose）：啟用引導、行為、引擎、ColorOS 提示
- └── Prefs.kt                           # SharedPreferences 封裝、ProviderId 預設值、列舉
+ ├── Prefs.kt                           # SharedPreferences 封裝、ProviderId 預設值、列舉
+ └── diag/                              # 診斷紀錄（v0.3.0）
+      ├── RunTrace.kt                   # 一次翻譯的分段計時與呼叫紀錄、膠囊摘要（純 Kotlin，可單元測試）
+      ├── DiagLog.kt                    # JSONL 寫檔（files/diag，1 MB 輪替、單執行緒寫入、寫前遮蔽 key）、網路類型
+      ├── DiagReport.kt                 # Redactor、統計報告（純 Kotlin，有單元測試）
+      ├── DiagProbe.kt                  # 檢測所有引擎：模型列表、3 次文字翻譯、圖片輸入
+      └── DiagExport.kt                 # 報告標頭（環境、設定不含 key）、分享（FileProvider）、SAF 存檔、複製摘要
 app/src/main/res/xml/accessibility_service_config.xml  # canTakeScreenshot、canPerformGestures
 app/src/main/AndroidManifest.xml
 .github/workflows/build.yml
@@ -138,6 +144,13 @@ docs/                                   # FEATURES、DESIGN、AGENT_API、agent-
 | 用 Android Studio 在倬的電腦編譯 | 倬選擇 GitHub Actions |
 | `android-actions/setup-android@v3` | 在 GitHub runner 上執行失敗（完整 log 無法下載，確切錯誤不明）；runner 已內建 Android SDK，移除後一次編譯成功 |
 | EncryptedSharedPreferences 存 API key | 第一版規劃時提過，實作時未採用，目前是一般 SharedPreferences（App 私有）。倬的標準是 Keystore AES-GCM，列入路線 |
+
+### 診斷紀錄（v0.3.0）
+
+- 事件類型：`translate`（一次點擊或翻頁自動翻譯，含 `stages`、`calls`）、`llm`（不屬於翻譯的單次呼叫，例如設定頁測試）、`probe`（檢測所有引擎）、`error`。
+- 每筆呼叫記：`dns_ms`、`connect_ms`、`tls_ms`、`reused`、`upload_ms`、`server_ms`（送完請求→收到回應標頭，非串流時約等於模型處理時間）、`total_ms`、`http`、`usage`（原樣，含推理 tokens）、`reasoning_chars`、`x-ratelimit-*` 標頭、錯誤。
+- 隱私：不記 API key（寫入與匯出各遮蔽一次）；原文、譯文、模型回覆只在「紀錄包含畫面原文與譯文」開啟時記錄（預設關閉）。
+- 分析流程：倬匯出 `ScreenTranslate-diag-*.txt` → 先看「翻譯統計」與「引擎呼叫統計」找慢的段落，再查原始 JSONL。
 
 ## 6. 絕對不要重踩的坑
 

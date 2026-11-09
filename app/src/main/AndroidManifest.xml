@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- 診斷紀錄：記下翻譯時是 Wi-Fi 還是行動網路 -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- App 內更新：用 PackageInstaller 安裝從 GitHub Releases 下載的新版 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
@@ -60,5 +62,16 @@
         <receiver
             android:name=".update.UpdateInstallReceiver"
             android:exported="false" />
+
+        <!-- 診斷紀錄匯出：讓分享對象（Gmail、LINE、雲端硬碟）讀取匯出檔 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.diagfiles"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/diag_paths" />
+        </provider>
     </application>
 </manifest>

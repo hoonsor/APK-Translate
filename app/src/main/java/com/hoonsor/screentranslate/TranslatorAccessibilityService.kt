@@ -15,6 +15,10 @@ import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.widget.Toast
+import com.hoonsor.screentranslate.diag.DiagLog
+import com.hoonsor.screentranslate.diag.RunTrace
+import org.json.JSONArray
+import org.json.JSONObject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -62,6 +66,7 @@ class TranslatorAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
         prefs = Prefs(this)
+        DiagLog.init(this)
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         translator = Translator(prefs)
         bubble = BubbleController(this, wm, prefs, onTap = this::onBubbleTap, onLongPress = this::onBubbleLongPress)
@@ -135,7 +140,7 @@ class TranslatorAccessibilityService : AccessibilityService() {
             toast("已取消翻譯")
             return
         }
-        job = scope.launch { runTranslate() }
+        job = scope.launch { runTranslate("tap") }
     }
 
     private fun onBubbleLongPress() {
@@ -147,17 +152,23 @@ class TranslatorAccessibilityService : AccessibilityService() {
 
     // ── 翻譯流程 ──────────────────────────────────
 
-    private suspend fun runTranslate() {
+    /** @param source tap＝點小圓點、swipe＝翻頁後自動翻譯（寫進診斷紀錄） */
+    private suspend fun runTranslate(source: String) {
         val b = bubble ?: return
+        val trace = RunTrace(source)
+        trace.put("network", DiagLog.networkType())
         val shot: Bitmap = try {
             b.setHiddenForCapture(true)
+            val tCap = System.nanoTime()
             delay(110) // 等一個畫面週期，確保小圓點已從畫面消失
-            captureWithRetry()
+            captureWithRetry(trace).also { trace.stage("capture_ms", (System.nanoTime() - tCap) / 1_000_000) }
         } catch (e: CancellationException) {
+            DiagLog.record("translate", trace.finish("cancelled"))
             throw e
         } catch (e: Exception) {
             b.flashError()
             toast(e.message ?: "截圖失敗")
+            DiagLog.record("translate", trace.finish("capture_failed", e.message))
             return
         } finally {
             b.setHiddenForCapture(false)
@@ -166,18 +177,31 @@ class TranslatorAccessibilityService : AccessibilityService() {
         b.setBusy(true)
         val topInset = statusBarHeight()
         try {
-            val res = withContext(Dispatchers.Default) { translator.translateScreen(shot, topInset) }
+            val res = withContext(Dispatchers.Default) { translator.translateScreen(shot, topInset, trace) }
+            trace.put("items", res.items.size)
+            res.note?.let { trace.put("note", it) }
+            if (DiagLog.includeText) {
+                trace.put("texts", JSONArray().apply {
+                    res.items.forEach { put(JSONObject().put("src", it.source).put("zh", it.zh)) }
+                })
+            }
             if (res.items.isEmpty()) {
                 toast(res.note ?: "沒有偵測到需要翻譯的文字")
+                DiagLog.record("translate", trace.finish("empty"))
             } else {
-                showOverlay(res)
+                val t = trace.elapsedMs()
+                showOverlay(res.copy(elapsedMs = t, breakdown = trace.shortSummary()))
+                trace.stage("show_ms", trace.elapsedMs() - t)
                 res.note?.let { toast(it) }
+                DiagLog.record("translate", trace.finish("ok"))
             }
         } catch (e: CancellationException) {
+            DiagLog.record("translate", trace.finish("cancelled"))
             throw e
         } catch (e: Exception) {
             b.flashError()
             toast("翻譯失敗：${e.message ?: e.javaClass.simpleName}", long = true)
+            DiagLog.record("translate", trace.finish("error", e.message ?: e.javaClass.simpleName))
         } finally {
             b.setBusy(false)
             shot.recycle()
@@ -186,12 +210,13 @@ class TranslatorAccessibilityService : AccessibilityService() {
 
     private class ScreenshotException(msg: String, val code: Int) : IOException(msg)
 
-    private suspend fun captureWithRetry(): Bitmap {
+    private suspend fun captureWithRetry(trace: RunTrace? = null): Bitmap {
         return try {
             capture()
         } catch (e: ScreenshotException) {
             // 系統限制截圖頻率（約每秒一次），稍等後重試一次
             if (e.code == AccessibilityService.ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT) {
+                trace?.put("capture_retry", true)
                 delay(1000)
                 capture()
             } else {
@@ -292,7 +317,7 @@ class TranslatorAccessibilityService : AccessibilityService() {
             dispatchGesture(gesture, null, null)
             if (prefs.autoAfterSwipe && job?.isActive != true) {
                 delay(durationMs + prefs.swipeSettleMs)
-                if (overlay == null && bubble?.isShown == true) job = scope.launch { runTranslate() }
+                if (overlay == null && bubble?.isShown == true) job = scope.launch { runTranslate("swipe") }
             }
         }
     }

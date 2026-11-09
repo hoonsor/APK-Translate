@@ -9,7 +9,9 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -73,9 +75,15 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.hoonsor.screentranslate.diag.DiagExport
+import com.hoonsor.screentranslate.diag.DiagLog
+import com.hoonsor.screentranslate.diag.DiagProbe
 import com.hoonsor.screentranslate.update.AutoUpdateCheck
 import com.hoonsor.screentranslate.update.UpdateCard
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import androidx.compose.runtime.LaunchedEffect
 import kotlin.math.roundToInt
 
 // HSL 調校過的暗色色票
@@ -97,6 +105,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val prefs = Prefs(this)
+        DiagLog.init(this)
         setContent {
             MaterialTheme(
                 colorScheme = darkColorScheme(
@@ -181,6 +190,7 @@ private fun SettingsScreen(prefs: Prefs, tick: Int) {
             BehaviorCard(prefs, serviceOn)
             EngineCard(prefs)
             ColorOsCard(activity)
+            DiagCard(prefs, tick)
             UpdateCard()
             Text(
                 "v${BuildConfig.VERSION_NAME}・API key 只存在本機 App 私有儲存區，不會備份或上傳",
@@ -557,5 +567,121 @@ private fun ColorOsCard(activity: MainActivity) {
             color = TextLo, fontSize = 13.sp, lineHeight = 19.sp,
         )
         OutlinedButton(onClick = { activity.openAppDetails() }) { Text("開啟應用程式資訊") }
+    }
+}
+
+// ── 5. 診斷紀錄 ─────────────────────────────────────
+
+@Composable
+private fun DiagCard(prefs: Prefs, tick: Int) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    var enabled by remember { mutableStateOf(prefs.diagEnabled) }
+    var includeText by remember { mutableStateOf(prefs.diagIncludeText) }
+    var status by remember { mutableStateOf("讀取中…") }
+    var refresh by remember { mutableIntStateOf(0) }
+    var probing by remember { mutableStateOf(false) }
+    var probeMsg by remember { mutableStateOf<String?>(null) }
+    var msg by remember { mutableStateOf<String?>(null) }
+    var msgOk by remember { mutableStateOf(true) }
+    var confirmClear by remember { mutableStateOf(false) }
+
+    LaunchedEffect(tick, refresh) {
+        status = withContext(Dispatchers.IO) { runCatching { DiagExport.statusLine() }.getOrElse { "讀取失敗：${it.message}" } }
+    }
+
+    val saveLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val r = withContext(Dispatchers.IO) { runCatching { DiagExport.saveTo(context, uri) } }
+            msgOk = r.isSuccess
+            msg = if (r.isSuccess) "已存檔" else "存檔失敗：${r.exceptionOrNull()?.message}"
+        }
+    }
+
+    SectionCard("診斷紀錄（匯出給 AI 分析）") {
+        Text(
+            "記錄每次翻譯的各段耗時（截圖、OCR、上傳、伺服器處理）、引擎呼叫結果、錯誤與 tokens 用量。" +
+                "不記錄 API key；匯出時會再遮蔽一次。",
+            color = TextLo, fontSize = 13.sp, lineHeight = 19.sp,
+        )
+        Text(status, color = TextHi, fontSize = 14.sp)
+        LabeledSwitch("記錄診斷資訊", enabled) {
+            enabled = it
+            prefs.diagEnabled = it
+        }
+        LabeledSwitch("紀錄包含畫面原文與譯文", includeText) {
+            includeText = it
+            prefs.diagIncludeText = it
+        }
+        if (includeText) {
+            Text(
+                "開啟後畫面上的文字會寫進紀錄。匯出前請確認沒有個資或公務資料。",
+                color = Amber, fontSize = 12.sp, lineHeight = 17.sp,
+            )
+        }
+        HorizontalDivider(color = SurfaceHi)
+        Text(
+            "檢測所有引擎：對每個已填 key 的引擎取得模型列表、連續測試 3 次文字翻譯、測試圖片輸入，結果寫進紀錄。約需 10～60 秒，會用掉少量額度。",
+            color = TextLo, fontSize = 13.sp, lineHeight = 19.sp,
+        )
+        Button(
+            enabled = !probing,
+            colors = ButtonDefaults.buttonColors(containerColor = Indigo, contentColor = Color.White),
+            onClick = {
+                scope.launch {
+                    probing = true
+                    probeMsg = null
+                    try {
+                        probeMsg = DiagProbe.runAll(prefs) { probeMsg = it }
+                    } catch (e: Exception) {
+                        probeMsg = "檢測中斷：${e.message}"
+                    } finally {
+                        probing = false
+                        refresh++
+                    }
+                }
+            },
+        ) {
+            if (probing) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+            else Text("檢測所有引擎")
+        }
+        probeMsg?.let { Text(it, color = Teal, fontSize = 13.sp, lineHeight = 18.sp) }
+        HorizontalDivider(color = SurfaceHi)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = {
+                scope.launch {
+                    runCatching { context.startActivity(withContext(Dispatchers.IO) { DiagExport.shareIntent(context) }) }
+                        .onFailure { msgOk = false; msg = "分享失敗：${it.message}" }
+                }
+            }) { Text("分享紀錄") }
+            OutlinedButton(onClick = { saveLauncher.launch(DiagExport.fileName()) }) { Text("存成檔案") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = {
+                scope.launch {
+                    val r = withContext(Dispatchers.IO) { runCatching { DiagExport.buildReport(context, includeRaw = false) } }
+                    r.onSuccess {
+                        DiagExport.copyToClipboard(context, it)
+                        msgOk = true
+                        msg = "已複製摘要（不含原始事件），可直接貼給 AI"
+                    }.onFailure { msgOk = false; msg = "複製失敗：${it.message}" }
+                }
+            }) { Text("複製摘要") }
+            TextButton(onClick = {
+                if (!confirmClear) {
+                    confirmClear = true
+                    msgOk = false
+                    msg = "再按一次「清除紀錄」確認（無法復原）"
+                } else {
+                    confirmClear = false
+                    DiagLog.clear()
+                    msgOk = true
+                    msg = "已清除"
+                    refresh++
+                }
+            }) { Text(if (confirmClear) "確認清除" else "清除紀錄", color = Rose) }
+        }
+        msg?.let { Text(it, color = if (msgOk) Teal else Rose, fontSize = 13.sp) }
     }
 }
